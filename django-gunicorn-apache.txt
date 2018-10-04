@@ -1,0 +1,69 @@
+This is a brief explanation on how to deploy a django application as service on gunicorn running on localhost on port 8000, and apache proxing requests from port 80 to 8000.
+
+Tested using: 
+	Django 2.1
+	Apache 2.4
+	Gunicorn 19.9.0
+	Python 3.6.6
+	Fedora 28
+
+1 > Make sure your system allows apache to proxy on localhost 
+
+	cmd: /usr/sbin/setsebool httpd_can_network_connect 1
+
+2 > Set up your django application as a service with systemd
+
+	#place the content bellow to the file myapp.service at /etc/systemd/system/
+
+	[Unit]
+	Description = MyApp
+	After = network.target
+
+	[Service]
+	PermissionsStartOnly = true
+	PIDFile = /run/myapp/myapp.pid
+	User = myuser # change the user
+	Group = mygroup # change the group
+	WorkingDirectory = /path/to/django/project # change to the actual project root path
+	ExecStartPre = /bin/mkdir /run/myapp
+	ExecStartPre = /bin/chown -R myuser:mygroup /run/myapp
+	ExecStart = /usr/bin/env gunicorn myapp.wsgi:application -b 0.0.0.0:8000 --pid /run/myapp/myapp.pid
+	ExecReload = /bin/kill -s HUP $MAINPID
+	ExecStop = /bin/kill -s TERM $MAINPID
+	ExecStopPost = /bin/rm -rf /run/myapp
+	PrivateTmp = true
+
+	[Install]
+	WantedBy = multi-user.target
+
+3 > Restart systemd
+
+	cmd: systemctl daemon-reload
+
+4 > Set up a apache virtual host, responsable to proxy the requests to gunicorn
+
+	<VirtualHost mydomain.com:80>
+	    DocumentRoot /path/to/django/project
+	    ProxyPreserveHost      On
+
+	    ProxyPass               /      http://localhost:8000/
+	    ProxyPass /static/ !
+	    Alias /static/ /path/to/django/project/static/
+	    ProxyPass /media/ !
+	    ProxyPassReverse        /      http://localhost:8000/
+
+	   <Proxy *>
+		Order deny,allow
+		Allow from all
+	    </Proxy>
+	</VirtualHost>
+
+5 > Restart httpd service
+
+	cmd: systemctl restart httpd
+
+6 > Initialize your django application as service
+
+	cmd: systemctl start myapp
+
+   
